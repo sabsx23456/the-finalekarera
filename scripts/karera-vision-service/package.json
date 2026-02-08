@@ -1,0 +1,16 @@
+{
+    "name": "karera-vision-service",
+    "version": "1.0.0",
+    "description": "AI Vision service for Horse Racing dividends",
+    "main": "monitor.js",
+    "type": "module",
+    "scripts": {
+        "start": "node monitor.js"
+    },
+    "dependencies": {
+        "@supabase/supabase-js": "^2.39.0",
+        "dotenv": "^16.3.1",
+        "node-fetch": "^3.3.2",
+        "puppeteer": "^21.5.2"
+    }
+}

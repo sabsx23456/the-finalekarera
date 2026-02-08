@@ -1,0 +1,213 @@
+@import "tailwindcss";
+
+@theme {
+  /* Modern Vegas Casino Theme - Ultra Luxury */
+  
+  /* Electric Gold - Primary Accent */
+  --color-casino-gold-50: #fffdf5;
+  --color-casino-gold-100: #fff9e0;
+  --color-casino-gold-200: #fff2b8;
+  --color-casino-gold-300: #ffe680;
+  --color-casino-gold-400: #ffd633;
+  --color-casino-gold-500: #ffcc00;
+  --color-casino-gold-600: #e6b800;
+  --color-casino-gold-700: #b38f00;
+  --color-casino-gold-800: #8a6d00;
+  --color-casino-gold-900: #5c4800;
+
+  /* Cool Grays - Text Hierarchy */
+  --color-casino-slate-50: #f8fafc;
+  --color-casino-slate-100: #f1f5f9;
+  --color-casino-slate-200: #e2e8f0;
+  --color-casino-slate-300: #94a3b8;
+  --color-casino-slate-400: #64748b;
+  --color-casino-slate-500: #475569;
+  --color-casino-slate-600: #334155;
+  --color-casino-slate-700: #1e293b;
+  --color-casino-slate-800: #0f172a;
+  --color-casino-slate-900: #020617;
+
+  /* True Dark - Premium Black Base */
+  --color-casino-dark-950: #000000;
+  --color-casino-dark-925: #030303;
+  --color-casino-dark-900: #080808;
+  --color-casino-dark-850: #0c0c0c;
+  --color-casino-dark-800: #111111;
+  --color-casino-dark-750: #151515;
+  --color-casino-dark-700: #1a1a1a;
+
+  /* Neon Accents - Vegas Style */
+  --color-neon-gold: #ffd700;
+  --color-neon-blue: #00f0ff;
+  --color-neon-green: #00ff9d;
+  --color-neon-red: #ff2a6d;
+  --color-neon-purple: #d300f9;
+
+  --font-display: 'Outfit', system-ui, -apple-system, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Custom Utilities - Ultra Modern */
+@utility glass-panel {
+  background: linear-gradient(145deg, rgba(17, 17, 17, 0.95), rgba(8, 8, 8, 0.98));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 204, 0, 0.12);
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.8),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+
+@utility glass-panel-hover {
+  @apply transition-all duration-200;
+
+  &:hover {
+    background: linear-gradient(145deg, rgba(21, 21, 21, 0.98), rgba(12, 12, 12, 0.99));
+    border-color: rgba(255, 204, 0, 0.25);
+    box-shadow: 
+      0 12px 40px rgba(0, 0, 0, 0.9),
+      0 0 20px rgba(255, 204, 0, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+}
+
+@utility text-gradient-gold {
+  background: linear-gradient(135deg, #fff2b8 0%, #ffd633 30%, #ffcc00 50%, #e6b800 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 8px rgba(255, 204, 0, 0.3));
+}
+
+/* Base Styles - Ultra Dark */
+:root {
+  font-family: var(--font-body);
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: dark;
+  color: #e2e8f0;
+  background-color: #000000;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  @apply antialiased text-casino-slate-300 bg-black overflow-x-hidden;
+  font-family: var(--font-body);
+  background: 
+    radial-gradient(ellipse at top, rgba(255, 204, 0, 0.03) 0%, transparent 50%),
+    radial-gradient(ellipse at bottom, rgba(0, 240, 255, 0.02) 0%, transparent 50%),
+    linear-gradient(180deg, #000000 0%, #080808 50%, #000000 100%);
+}
+
+@utility bg-casino-input {
+  background: rgba(12, 12, 12, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.15s ease;
+
+  &:focus-within {
+    border-color: rgba(255, 204, 0, 0.5);
+    background: rgba(17, 17, 17, 0.95);
+    box-shadow: 
+      0 0 0 3px rgba(255, 204, 0, 0.1),
+      0 0 20px rgba(255, 204, 0, 0.05);
+  }
+}
+
+@utility btn-casino-primary {
+  background: linear-gradient(135deg, #ffd633 0%, #ffcc00 50%, #e6b800 100%);
+  border: none;
+  color: #000000;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  box-shadow: 
+    0 4px 20px rgba(255, 204, 0, 0.3),
+    0 0 0 1px rgba(255, 204, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition: all 0.15s ease;
+  text-shadow: none;
+
+  &:hover {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+    box-shadow: 
+      0 6px 25px rgba(255, 204, 0, 0.4),
+      0 0 0 1px rgba(255, 204, 0, 0.3),
+      0 0 30px rgba(255, 204, 0, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+
+  &:active {
+    transform: translateY(0);
+    box-shadow: 
+      0 2px 10px rgba(255, 204, 0, 0.3),
+      0 0 0 1px rgba(255, 204, 0, 0.2);
+  }
+
+  &:disabled {
+    background: #1a1a1a;
+    color: #475569;
+    box-shadow: none;
+    transform: none;
+    cursor: not-allowed;
+  }
+}
+
+/* Mobile Optimizations */
+@media (max-width: 640px) {
+  h1 { font-size: 1.25rem; }
+  h2 { font-size: 1.1rem; }
+  h3 { font-size: 1rem; }
+  .glass-panel { padding: 0.875rem; }
+  /* Safe area for mobile bottom nav */
+  .pb-safe-nav { padding-bottom: calc(4rem + env(safe-area-inset-bottom)); }
+}
+
+/* Compact spacing */
+@utility compact-y {
+  & > * + * { margin-top: 0.5rem; }
+}
+
+/* Scrollbar - Gold Accent */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 204, 0, 0.2);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 204, 0, 0.4);
+}
+
+/* Neon Glow Utilities */
+@utility glow-gold {
+  box-shadow: 0 0 20px rgba(255, 204, 0, 0.3);
+}
+
+@utility glow-blue {
+  box-shadow: 0 0 20px rgba(0, 240, 255, 0.3);
+}
+
+@utility glow-green {
+  box-shadow: 0 0 20px rgba(0, 255, 157, 0.3);
+}
+
+@utility glow-red {
+  box-shadow: 0 0 20px rgba(255, 42, 109, 0.3);
+}
