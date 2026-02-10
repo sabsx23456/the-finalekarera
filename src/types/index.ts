@@ -18,6 +18,7 @@ export interface Profile {
     win_streak?: number;
     lose_streak?: number;
     tickets?: number;
+    ip_address?: string;
 }
 
 export interface Transaction {
@@ -37,7 +38,7 @@ export interface Bet {
     match_id: string;
     amount: number;
     selection: 'meron' | 'wala' | 'draw';
-    status: 'pending' | 'won' | 'lost' | 'cancelled';
+    status: 'pending' | 'won' | 'lost' | 'cancelled' | 'refunded';
     payout: number;
     created_at: string;
     is_bot?: boolean;
