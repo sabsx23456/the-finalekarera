@@ -19,6 +19,11 @@ const BET_CONFIG: Record<string, { label: string; raceCount: number }> = {
     'wta': { label: 'Winner Take All', raceCount: 7 },
 };
 
+const BET_TYPE_ROWS: ProgramBetType[][] = [
+    ['pick_4', 'pick_5', 'pick_6'],
+    ['wta'],
+];
+
 const BET_TYPE_THEME: Record<ProgramBetType, { active: string; pill: string }> = {
     pick_4: {
         active: 'border-yellow-200 bg-gradient-to-r from-amber-300 via-yellow-300 to-orange-300 text-black shadow-[0_0_20px_rgba(251,191,36,0.45)]',
@@ -580,7 +585,7 @@ export const KareraProgramBetting = () => {
 
     // ---------- MAIN RENDER ----------
     return (
-        <div className="max-w-7xl mx-auto p-4 flex flex-col gap-5 min-h-screen pb-36 text-[16px] sm:text-[17px] leading-relaxed">
+        <div className="max-w-7xl mx-auto p-4 flex flex-col gap-5 min-h-screen pb-36">
 
             {/* ── Header ── */}
             <div className="flex flex-col gap-4">
@@ -589,50 +594,54 @@ export const KareraProgramBetting = () => {
                         <ArrowLeft size={26} />
                     </Link>
                     <div>
-                        <h1 className="text-3xl sm:text-4xl font-black text-white uppercase italic tracking-wide">
+                        <h1 className="text-2xl sm:text-3xl font-black text-white uppercase italic tracking-wide">
                             Program Betting
                         </h1>
-                        <p className="text-casino-slate-300 text-base sm:text-lg">System tickets for multiple races</p>
+                        <p className="text-casino-slate-300 text-sm sm:text-base">System tickets for multiple races</p>
                     </div>
                 </div>
 
                 {/* ── Bet Type Tabs ── */}
-                <div className="flex bg-casino-dark-800/80 rounded-2xl p-2 gap-2 overflow-x-auto border-2 border-white/15 scrollbar-thin">
-                    {Object.entries(BET_CONFIG).map(([key, config]) => {
-                        const k = key as ProgramBetType;
-                        const disabled = Boolean(betTypeDisabled[k]);
-                        return (
-                            <button
-                                key={key}
-                                type="button"
-                                disabled={disabled}
-                                onClick={() => {
-                                    if (disabled) return;
-                                    setSelectedBetType(k);
-                                    setSelections({});
-                                    setSelectedRaceIds([]);
-                                }}
-                                title={disabled ? `Not enough open races for ${config.label}.` : undefined}
-                                className={clsx(
-                                    "px-6 py-3.5 rounded-xl text-base sm:text-lg font-black uppercase whitespace-nowrap transition-all tracking-wide border-2",
-                                    disabled
-                                        ? "opacity-35 cursor-not-allowed text-white/60 border-white/10 bg-white/5"
-                                        : selectedBetType === key
-                                            ? BET_TYPE_THEME[k].active
-                                            : "text-casino-slate-100 border-white/20 bg-white/5 hover:bg-white/15 hover:text-white"
-                                )}
-                            >
-                                {config.label}
-                            </button>
-                        );
-                    })}
+                <div className="bg-casino-dark-800/80 rounded-2xl p-2 border-2 border-white/15 space-y-2">
+                    {BET_TYPE_ROWS.map((row, rowIdx) => (
+                        <div key={rowIdx} className={clsx("grid gap-2", row.length === 1 ? "grid-cols-1" : "grid-cols-3")}>
+                            {row.map((k) => {
+                                const config = BET_CONFIG[k];
+                                const disabled = Boolean(betTypeDisabled[k]);
+                                return (
+                                    <button
+                                        key={k}
+                                        type="button"
+                                        disabled={disabled}
+                                        onClick={() => {
+                                            if (disabled) return;
+                                            setSelectedBetType(k);
+                                            setSelections({});
+                                            setSelectedRaceIds([]);
+                                        }}
+                                        title={disabled ? `Not enough open races for ${config.label}.` : undefined}
+                                        className={clsx(
+                                            "min-h-11 px-3 py-2 rounded-xl text-sm sm:text-base font-black uppercase transition-all tracking-wide border-2",
+                                            disabled
+                                                ? "opacity-35 cursor-not-allowed text-white/60 border-white/10 bg-white/5"
+                                                : selectedBetType === k
+                                                    ? BET_TYPE_THEME[k].active
+                                                    : "text-casino-slate-100 border-white/20 bg-white/5 hover:bg-white/15 hover:text-white"
+                                        )}
+                                    >
+                                        {config.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ))}
                 </div>
             </div>
 
-            {/* ── Info Banner ── */}
-            <div className="bg-blue-900/35 border-2 border-blue-300/40 p-5 rounded-2xl flex items-start gap-3">
-                <Info className="text-blue-300 shrink-0 mt-0.5" size={24} />
-                <div className="text-base sm:text-lg text-blue-100">
+            {/* Info Banner */}
+            <div className="bg-blue-900/35 border-2 border-blue-300/40 p-4 rounded-2xl flex items-start gap-3">
+                <Info className="text-blue-300 shrink-0 mt-0.5" size={22} />
+                <div className="text-sm sm:text-base text-blue-100">
                     <span className="font-black text-white">System Betting:</span> Select multiple horses per race.
                     Cost = selections multiplied across races.
                     <br />
@@ -644,16 +653,16 @@ export const KareraProgramBetting = () => {
             <div className="p-4 rounded-2xl border-2 border-white/15 bg-casino-dark-800/75">
                 <div className="flex items-center justify-between gap-3 mb-3">
                     <div>
-                        <h3 className="text-base sm:text-lg font-black uppercase tracking-wide text-white">
+                        <h3 className="text-sm sm:text-base font-black uppercase tracking-wide text-white">
                             Choose Races for {BET_CONFIG[selectedBetType].label}
                         </h3>
-                        <p className="text-sm sm:text-base text-casino-slate-300">
+                        <p className="text-xs sm:text-sm text-casino-slate-300">
                             {requiredLegCount(selectedBetType)
                                 ? `Select exactly ${requiredLegCount(selectedBetType)} races`
                                 : `Select at least ${minLegCount(selectedBetType)} races`}
                         </p>
                     </div>
-                    <div className={clsx("text-sm sm:text-base font-black uppercase tracking-wider border px-3 py-1.5 rounded-lg", BET_TYPE_THEME[selectedBetType].pill)}>
+                    <div className={clsx("text-xs sm:text-sm font-black uppercase tracking-wider border px-3 py-1.5 rounded-lg", BET_TYPE_THEME[selectedBetType].pill)}>
                         {selectedRaceIds.length} Selected
                     </div>
                 </div>
@@ -670,7 +679,7 @@ export const KareraProgramBetting = () => {
                                     type="button"
                                     onClick={() => toggleRaceSelection(race.id)}
                                     className={clsx(
-                                        "px-5 py-3 rounded-xl border-2 text-base sm:text-lg font-black uppercase tracking-wide transition-all",
+                                        "px-4 py-2.5 rounded-xl border-2 text-sm sm:text-base font-black uppercase tracking-wide transition-all",
                                         isSelected
                                             ? "border-yellow-200 bg-yellow-300 text-black shadow-[0_0_14px_rgba(253,224,71,0.45)]"
                                             : "border-white/20 bg-black/20 text-casino-slate-100 hover:border-white/40 hover:bg-white/10"
