@@ -2,12 +2,15 @@ import { useEffect, useState, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import type { KareraRace, KareraHorse } from '../../types/karera';
-import { ArrowLeft, RefreshCw, Calculator, DollarSign, Info } from 'lucide-react';
+import type { LiveBoardData } from '../../components/karera/KareraLiveBoard';
+import { ArrowLeft, RefreshCw, Calculator, DollarSign, Info, Check, Minus } from 'lucide-react';
 import { useAuthStore } from '../../lib/store';
 import { useToast } from '../../components/ui/Toast';
 import clsx from 'clsx';
 import { BetReceiptModal, type BetReceiptData } from '../../components/karera/BetReceiptModal';
 import { useKareraLobbySettings } from '../../hooks/useKareraLobbySettings';
+
+type ProgramBetType = 'pick_4' | 'pick_5' | 'pick_6' | 'wta';
 
 const BET_CONFIG: Record<string, { label: string; raceCount: number }> = {
     'pick_4': { label: 'Pick 4', raceCount: 4 },
@@ -23,9 +26,24 @@ const formatPesoUi = (value: number) => {
     return `₱${safe.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
+const formatPesoCompact = (value: number) => {
+    const safe = Number.isFinite(value) ? value : 0;
+    if (safe >= 1_000_000) return `₱${(safe / 1_000_000).toFixed(1)}M`;
+    if (safe >= 1_000) return `₱${(safe / 1_000).toFixed(0)}K`;
+    return `₱${safe.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+};
+
+// Parse live board data from the karera_live_boards table
+const parseDDBoard = (raw: any): LiveBoardData | null => {
+    if (!raw || typeof raw !== 'object') return null;
+    // Check if root is a LiveBoardData directly
+    if (Array.isArray(raw.cells)) return raw as LiveBoardData;
+    // Check nested daily_double key
+    if (raw.daily_double && Array.isArray(raw.daily_double.cells)) return raw.daily_double as LiveBoardData;
+    return null;
+};
+
 export const KareraProgramBetting = () => {
-    // We might pass an eventId or startRaceId, currently assuming we load ALL open races for the day
-    // or filtering by a param. For now, let's load all active races.
     const { profile } = useAuthStore();
     const { showToast } = useToast();
     const { offline: isKareraOffline, nextRaceText, promoEnabled, promoPercent, promoBannerText, loading: kareraSettingsLoading } = useKareraLobbySettings();
@@ -49,7 +67,11 @@ export const KareraProgramBetting = () => {
     const [horsesMap, setHorsesMap] = useState<Record<string, KareraHorse[]>>({});
     const [loading, setLoading] = useState(true);
 
-    const [selectedBetType, setSelectedBetType] = useState<keyof typeof BET_CONFIG>('wta');
+    const [selectedBetType, setSelectedBetType] = useState<ProgramBetType>('wta');
+    const [selectedRaceIds, setSelectedRaceIds] = useState<string[]>([]);
+
+    // DD live board data per race: { race_id: LiveBoardData }
+    const [ddBoardsMap, setDdBoardsMap] = useState<Record<string, LiveBoardData | null>>({});
 
     // Selections: { race_id: [horse_number_1, horse_number_2] }
     const [selections, setSelections] = useState<Record<string, number[]>>({});
@@ -59,11 +81,11 @@ export const KareraProgramBetting = () => {
     const [receipt, setReceipt] = useState<BetReceiptData | null>(null);
     const [receiptOpen, setReceiptOpen] = useState(false);
 
+    // ---------- Fetch Races + Horses + DD Boards ----------
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
             try {
-                // Fetch all open races (ordered by time)
                 let query = supabase
                     .from('karera_races')
                     .select('*')
@@ -87,23 +109,38 @@ export const KareraProgramBetting = () => {
                 if (racesData) {
                     setRaces(racesData as KareraRace[]);
 
-                    // Fetch horses for these races
                     const raceIds = racesData.map(r => r.id);
-                    const { data: horsesData, error: horsesError } = await supabase
-                        .from('karera_horses')
-                        .select('*')
-                        .in('race_id', raceIds)
-                        .order('horse_number');
 
-                    if (horsesError) throw horsesError;
+                    // Fetch horses + DD boards in parallel
+                    const [horsesRes, boardsRes] = await Promise.all([
+                        supabase
+                            .from('karera_horses')
+                            .select('*')
+                            .in('race_id', raceIds)
+                            .order('horse_number'),
+                        supabase
+                            .from('karera_live_boards')
+                            .select('race_id, data')
+                            .in('race_id', raceIds),
+                    ]);
+
+                    if (horsesRes.error) throw horsesRes.error;
 
                     // Group horses by race
                     const hMap: Record<string, KareraHorse[]> = {};
-                    horsesData?.forEach((h: KareraHorse) => {
+                    horsesRes.data?.forEach((h: KareraHorse) => {
                         if (!hMap[h.race_id]) hMap[h.race_id] = [];
                         hMap[h.race_id].push(h);
                     });
                     setHorsesMap(hMap);
+
+                    // Group DD boards by race
+                    const bMap: Record<string, LiveBoardData | null> = {};
+                    (boardsRes.data || []).forEach((row: any) => {
+                        if (!row?.race_id) return;
+                        bMap[row.race_id] = parseDDBoard(row.data);
+                    });
+                    setDdBoardsMap(bMap);
                 }
             } catch (err) {
                 console.error("Error loading program:", err);
@@ -115,7 +152,7 @@ export const KareraProgramBetting = () => {
         fetchData();
     }, [selectedTournamentId]);
 
-    // Realtime horse updates (e.g., Scratch -S-) for currently loaded races
+    // ---------- Realtime: Horse updates ----------
     useEffect(() => {
         if (races.length === 0) return;
 
@@ -159,43 +196,211 @@ export const KareraProgramBetting = () => {
         };
     }, [races]);
 
-    // Filter relevant races based on Bet Type (Need consecutive races)
-    // For simplicity, we assume the FIRST N OPEN RACES are the target sequence.
-    // In a real app, we might need logic to select WHICH sequence (e.g., Races 1-7 or Races 2-8).
-    // For this MVP, we take the first N races from the list.
-    const betTypeDisabled = useMemo(() => {
-        const out = {} as Record<keyof typeof BET_CONFIG, boolean>;
-        (Object.keys(BET_CONFIG) as Array<keyof typeof BET_CONFIG>).forEach((k) => {
-            const eligible = races.filter(r => r.bet_types_available?.includes(k as any));
-            out[k] = eligible.length < BET_CONFIG[k].raceCount;
+    // ---------- Realtime: DD Live Board updates ----------
+    useEffect(() => {
+        if (races.length === 0) return;
+
+        const raceIds = races.map(r => r.id);
+        const channel = supabase.channel('karera_program_dd_boards');
+
+        raceIds.forEach((raceId) => {
+            channel.on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'karera_live_boards',
+                filter: `race_id=eq.${raceId}`
+            }, (payload) => {
+                const row = payload.new as any;
+                if (!row?.race_id) return;
+                setDdBoardsMap((prev) => ({
+                    ...prev,
+                    [row.race_id]: parseDDBoard(row.data),
+                }));
+            });
+        });
+
+        channel.subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [races]);
+
+    // ---------- Computed DD dividends per horse ----------
+    const ddDividendsMap = useMemo(() => {
+        // For each race, compute per-horse DD dividend from DD board row_totals
+        // Dividend formula: DD_TOTAL / num_active_horses
+        // Race 1 has no DD data → blank
+        const result: Record<string, Record<number, number | null>> = {};
+
+        races.forEach((race) => {
+            const board = ddBoardsMap[race.id];
+            const horses = horsesMap[race.id] || [];
+            const activeHorses = horses.filter(h => h.status !== 'scratched');
+            const numActive = activeHorses.length || 1;
+
+            if (!board || !board.row_totals) {
+                // No DD data available
+                result[race.id] = {};
+                return;
+            }
+
+            const poolGross = board.pool_gross || 0;
+            const horseDividends: Record<number, number | null> = {};
+
+            activeHorses.forEach((h) => {
+                const rowTotal = Number(board.row_totals[h.horse_number] || 0);
+                if (rowTotal > 0 && poolGross > 0) {
+                    // Approx payout per P1: pool / rowTotal
+                    horseDividends[h.horse_number] = Math.round(poolGross / rowTotal);
+                } else {
+                    // Fallback: pool / num_horses
+                    horseDividends[h.horse_number] = poolGross > 0 ? Math.round(poolGross / numActive) : null;
+                }
+            });
+
+            result[race.id] = horseDividends;
+        });
+
+        return result;
+    }, [races, horsesMap, ddBoardsMap]);
+
+    // ---------- Race selection logic (same as before) ----------
+    const requiredLegCount = (betType: ProgramBetType) => {
+        if (betType === 'pick_4') return 4;
+        if (betType === 'pick_5') return 5;
+        if (betType === 'pick_6') return 6;
+        return null;
+    };
+
+    const minLegCount = (betType: ProgramBetType) => {
+        if (betType === 'wta') return 2;
+        return requiredLegCount(betType) || 1;
+    };
+
+    const eligibleRacesByType = useMemo(() => {
+        const out = {} as Record<ProgramBetType, KareraRace[]>;
+        (Object.keys(BET_CONFIG) as Array<ProgramBetType>).forEach((k) => {
+            out[k] = races.filter(r => r.bet_types_available?.includes(k as any));
         });
         return out;
     }, [races]);
 
-    useEffect(() => {
-        const current = BET_CONFIG[selectedBetType];
-        if (!current) return;
-        const eligible = races.filter(r => r.bet_types_available?.includes(selectedBetType as any));
-        if (eligible.length >= current.raceCount) return;
+    const betTypeDisabled = useMemo(() => {
+        const out = {} as Record<ProgramBetType, boolean>;
+        (Object.keys(BET_CONFIG) as Array<ProgramBetType>).forEach((k) => {
+            const needed = requiredLegCount(k) ?? minLegCount(k);
+            const eligible = eligibleRacesByType[k];
+            out[k] = eligible.length < needed;
+        });
+        return out;
+    }, [eligibleRacesByType]);
 
-        const best = (Object.entries(BET_CONFIG) as Array<[keyof typeof BET_CONFIG, { label: string; raceCount: number }]>)
-            .filter(([k, cfg]) => {
-                const elig = races.filter(r => r.bet_types_available?.includes(k as any));
-                return elig.length >= cfg.raceCount;
+    const raceById = useMemo(() => {
+        const map = new Map<string, KareraRace>();
+        races.forEach((r) => map.set(r.id, r));
+        return map;
+    }, [races]);
+
+    const eligibleRaceIds = useMemo(
+        () => (eligibleRacesByType[selectedBetType] || []).map((r) => r.id),
+        [eligibleRacesByType, selectedBetType]
+    );
+
+    const isConsecutiveIds = (ids: string[]) => {
+        if (ids.length <= 1) return true;
+        const indexMap = new Map(eligibleRaceIds.map((id, idx) => [id, idx]));
+        const idxs = ids.map((id) => indexMap.get(id)).filter((v): v is number => v !== undefined).sort((a, b) => a - b);
+        if (idxs.length !== ids.length) return false;
+        for (let i = 1; i < idxs.length; i += 1) {
+            if (idxs[i] !== idxs[i - 1] + 1) return false;
+        }
+        return true;
+    };
+
+    useEffect(() => {
+        const eligibleIds = eligibleRaceIds;
+        const eligibleSet = new Set(eligibleIds);
+        const required = requiredLegCount(selectedBetType);
+
+        setSelectedRaceIds((prev) => {
+            const next = prev.filter((id) => eligibleSet.has(id));
+
+            if (required) {
+                if (eligibleIds.length < required) return [];
+                if (next.length === required && isConsecutiveIds(next)) return next;
+                const anchor = next[0] ? eligibleIds.indexOf(next[0]) : 0;
+                const start = anchor >= 0 && anchor + required <= eligibleIds.length ? anchor : 0;
+                return eligibleIds.slice(start, start + required);
+            }
+
+            if (next.length === 0 && eligibleIds.length > 0) return eligibleIds.slice(0, Math.min(2, eligibleIds.length));
+            if (!isConsecutiveIds(next)) return [next[0]].filter(Boolean) as string[];
+            return next;
+        });
+    }, [eligibleRaceIds, selectedBetType]);
+
+    useEffect(() => {
+        const needed = requiredLegCount(selectedBetType) ?? minLegCount(selectedBetType);
+        const eligible = eligibleRacesByType[selectedBetType];
+        if (eligible.length >= needed) return;
+
+        const best = (Object.entries(BET_CONFIG) as Array<[ProgramBetType, { label: string; raceCount: number }]>)
+            .filter(([k]) => {
+                const need = requiredLegCount(k) ?? minLegCount(k);
+                return (eligibleRacesByType[k] || []).length >= need;
             })
-            .sort((a, b) => b[1].raceCount - a[1].raceCount)[0];
+            .sort((a, b) => {
+                const aNeed = requiredLegCount(a[0]) ?? minLegCount(a[0]);
+                const bNeed = requiredLegCount(b[0]) ?? minLegCount(b[0]);
+                return bNeed - aNeed;
+            })[0];
 
         if (best && best[0] !== selectedBetType) {
             setSelectedBetType(best[0]);
             setSelections({});
+            setSelectedRaceIds([]);
         }
-    }, [races, selectedBetType]);
+    }, [eligibleRacesByType, selectedBetType]);
 
     const activeRaces = useMemo(() => {
-        const count = BET_CONFIG[selectedBetType].raceCount;
-        const eligible = races.filter(r => r.bet_types_available?.includes(selectedBetType as any));
-        return eligible.slice(0, count);
-    }, [races, selectedBetType]);
+        const eligible = eligibleRacesByType[selectedBetType] || [];
+        const selectedSet = new Set(selectedRaceIds);
+        return eligible.filter((r) => selectedSet.has(r.id));
+    }, [eligibleRacesByType, selectedBetType, selectedRaceIds]);
+
+    const toggleRaceSelection = (raceId: string) => {
+        const race = raceById.get(raceId);
+        if (!race) return;
+        if (!race.bet_types_available?.includes(selectedBetType as any)) return;
+
+        const required = requiredLegCount(selectedBetType);
+        setSelectedRaceIds((prev) => {
+            const index = eligibleRaceIds.indexOf(raceId);
+            if (index < 0) return prev;
+
+            if (required) {
+                if (index + required > eligibleRaceIds.length) {
+                    showToast(`Not enough next races from this point for ${BET_CONFIG[selectedBetType].label}`, 'error');
+                    return prev;
+                }
+                return eligibleRaceIds.slice(index, index + required);
+            }
+
+            const exists = prev.includes(raceId);
+            const next = exists
+                ? prev.filter((id) => id !== raceId)
+                : [...prev, raceId];
+            next.sort((a, b) => eligibleRaceIds.indexOf(a) - eligibleRaceIds.indexOf(b));
+
+            if (next.length > 1 && !isConsecutiveIds(next)) {
+                showToast('WTA race selection must be consecutive', 'error');
+                return prev;
+            }
+
+            return next;
+        });
+    };
 
     const handleHorseToggle = (raceId: string, horseNum: number) => {
         setSelections(prev => {
@@ -208,49 +413,61 @@ export const KareraProgramBetting = () => {
         });
     };
 
-    // Calculation
+    // ---------- Calculation ----------
     const calculations = useMemo(() => {
         let combinations = 1;
         let isComplete = true;
+        const required = requiredLegCount(selectedBetType);
+        const minRequired = minLegCount(selectedBetType);
 
         if (activeRaces.length === 0) return { combinations: 0, totalCost: 0, isComplete: false };
 
         activeRaces.forEach(race => {
             const count = selections[race.id]?.length || 0;
             if (count === 0) {
-                combinations = 0; // If any race has 0 selections, practically 0 valid tickets (or invalid bet)
+                combinations = 0;
                 isComplete = false;
             } else {
                 combinations *= count;
             }
         });
 
-        // Special case: if combinations became 0 during loop but we want to show 0 explicitly
         if (!isComplete) combinations = 0;
 
         return {
             combinations,
             totalCost: combinations * UNIT_COST,
-            isComplete: isComplete && activeRaces.length === BET_CONFIG[selectedBetType].raceCount
+            isComplete: isComplete && (required ? activeRaces.length === required : activeRaces.length >= minRequired)
         };
     }, [selections, activeRaces, selectedBetType]);
 
+    // ---------- Place Bet ----------
     const placeBet = async () => {
         if (!profile) return;
         if (!calculations.isComplete) {
-            showToast('Please select at least one horse for every race', 'error');
+            const required = requiredLegCount(selectedBetType);
+            const minRequired = minLegCount(selectedBetType);
+            if (required && activeRaces.length !== required) {
+                showToast(`Please choose exactly ${required} races for ${BET_CONFIG[selectedBetType].label}`, 'error');
+            } else if (activeRaces.length < minRequired) {
+                showToast(`Please choose at least ${minRequired} races for ${BET_CONFIG[selectedBetType].label}`, 'error');
+            } else {
+                showToast('Please select at least one horse for every chosen race', 'error');
+            }
+            return;
+        }
+        if (!isConsecutiveIds(selectedRaceIds)) {
+            showToast('Please select consecutive races only', 'error');
             return;
         }
 
         setPlacingBet(true);
         try {
-            // Check Balance (server will also enforce)
             if ((profile.balance || 0) < calculations.totalCost) {
                 showToast('Insufficient balance', 'error');
                 return;
             }
 
-            // Place Bet via RPC (computes combos + cost server-side and deducts balance atomically)
             const primaryRaceId = activeRaces[0].id;
             const payload = {
                 legs: activeRaces.map(r => ({
@@ -296,7 +513,6 @@ export const KareraProgramBetting = () => {
             });
             setReceiptOpen(true);
 
-            // Optimistic Update
             useAuthStore.getState().refreshProfile();
 
             showToast('System Bet Placed Successfully!', 'success');
@@ -310,15 +526,16 @@ export const KareraProgramBetting = () => {
         }
     };
 
-    if (kareraSettingsLoading) return <div className="p-12 text-center text-white">Loading...</div>;
+    // ---------- Render: Loading / Offline states ----------
+    if (kareraSettingsLoading) return <div className="p-12 text-center text-white text-xl">Loading...</div>;
 
     if (isKareraOffline) {
         const schedule = String(nextRaceText || '').trim();
         return (
             <div className="max-w-7xl mx-auto p-4 min-h-[70vh] flex flex-col">
                 <div className="flex items-center gap-3">
-                    <Link to={`/karera${tournamentQuery}`} className="inline-flex items-center gap-2 text-casino-slate-400 hover:text-white">
-                        <ArrowLeft size={18} />
+                    <Link to={`/karera${tournamentQuery}`} className="inline-flex items-center gap-2 text-casino-slate-400 hover:text-white text-lg">
+                        <ArrowLeft size={22} />
                         Back to Lobby
                     </Link>
                 </div>
@@ -340,28 +557,30 @@ export const KareraProgramBetting = () => {
         );
     }
 
-    if (loading) return <div className="p-12 text-center text-white">Loading Program...</div>;
+    if (loading) return <div className="p-12 text-center text-white text-xl">Loading Program...</div>;
 
+    // ---------- MAIN RENDER ----------
     return (
-        <div className="max-w-7xl mx-auto p-4 flex flex-col gap-6 min-h-screen pb-32">
+        <div className="max-w-7xl mx-auto p-4 flex flex-col gap-5 min-h-screen pb-36">
 
-            {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            {/* ── Header ── */}
+            <div className="flex flex-col gap-4">
                 <div className="flex items-center gap-4">
                     <Link to={`/karera${tournamentQuery}`} className="text-casino-slate-400 hover:text-white">
-                        <ArrowLeft />
+                        <ArrowLeft size={26} />
                     </Link>
                     <div>
-                        <h1 className="text-2xl font-black text-white uppercase italic tracking-wider">
+                        <h1 className="text-2xl sm:text-3xl font-black text-white uppercase italic tracking-wider">
                             Program Betting
                         </h1>
-                        <p className="text-casino-slate-400 text-sm">Create your system tickets for multiple races</p>
+                        <p className="text-casino-slate-400 text-sm sm:text-base">System tickets for multiple races</p>
                     </div>
                 </div>
 
-                <div className="flex bg-casino-dark-800 rounded-xl p-1 gap-1 overflow-x-auto border border-white/5 scrollbar-thin">
+                {/* ── Bet Type Tabs ── */}
+                <div className="flex bg-casino-dark-800 rounded-2xl p-1.5 gap-1.5 overflow-x-auto border border-white/10 scrollbar-thin">
                     {Object.entries(BET_CONFIG).map(([key, config]) => {
-                        const k = key as keyof typeof BET_CONFIG;
+                        const k = key as ProgramBetType;
                         const disabled = Boolean(betTypeDisabled[k]);
                         return (
                             <button
@@ -372,15 +591,16 @@ export const KareraProgramBetting = () => {
                                     if (disabled) return;
                                     setSelectedBetType(k);
                                     setSelections({});
+                                    setSelectedRaceIds([]);
                                 }}
-                                title={disabled ? `Need at least ${config.raceCount} open races.` : undefined}
+                                title={disabled ? `Not enough open races for ${config.label}.` : undefined}
                                 className={clsx(
-                                    "px-4 py-2 rounded-lg text-xs font-bold uppercase whitespace-nowrap transition-all",
+                                    "px-5 py-3 rounded-xl text-sm sm:text-base font-black uppercase whitespace-nowrap transition-all tracking-wide",
                                     disabled
                                         ? "opacity-30 cursor-not-allowed text-white/60"
                                         : selectedBetType === key
-                                            ? "bg-casino-gold-500 text-black shadow-lg"
-                                            : "text-casino-slate-400 hover:bg-white/5"
+                                            ? "bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-lg shadow-violet-500/30"
+                                            : "text-casino-slate-300 hover:bg-white/10 hover:text-white"
                                 )}
                             >
                                 {config.label}
@@ -390,51 +610,127 @@ export const KareraProgramBetting = () => {
                 </div>
             </div>
 
-            {/* Info Banner */}
-            <div className="bg-blue-900/20 border border-blue-500/20 p-4 rounded-xl flex items-start gap-3">
-                <Info className="text-blue-400 shrink-0 mt-0.5" size={18} />
-                <div className="text-sm text-blue-200">
-                    <span className="font-bold text-blue-100">System Betting:</span> Select multiple horses per race.
-                    The cost is calculated by multiplying the number of selections in each race.
+            {/* ── Info Banner ── */}
+            <div className="bg-blue-900/30 border-2 border-blue-400/30 p-4 rounded-2xl flex items-start gap-3">
+                <Info className="text-blue-400 shrink-0 mt-0.5" size={22} />
+                <div className="text-sm sm:text-base text-blue-200">
+                    <span className="font-black text-blue-100">System Betting:</span> Select multiple horses per race.
+                    Cost = selections multiplied across races.
                     <br />
-                    <span className="opacity-70 text-xs">Current Ticket Cost: {formatPesoUi(UNIT_COST)} / combination</span>
+                    <span className="opacity-70 text-xs sm:text-sm">Ticket Cost: {formatPesoUi(UNIT_COST)} / combination</span>
                 </div>
             </div>
 
-            {/* Races Grid */}
-            <div className="grid grid-cols-1 gap-6">
+            {/* ── Race Selector Panel ── */}
+            <div className="p-4 rounded-2xl border-2 border-white/10 bg-casino-dark-800/60">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                        <h3 className="text-sm sm:text-base font-black uppercase tracking-wide text-white">
+                            Choose Races for {BET_CONFIG[selectedBetType].label}
+                        </h3>
+                        <p className="text-xs sm:text-sm text-casino-slate-400">
+                            {requiredLegCount(selectedBetType)
+                                ? `Select exactly ${requiredLegCount(selectedBetType)} races`
+                                : `Select at least ${minLegCount(selectedBetType)} races`}
+                        </p>
+                    </div>
+                    <div className="text-sm font-black uppercase tracking-wider text-casino-gold-500">
+                        {selectedRaceIds.length} Selected
+                    </div>
+                </div>
+
+                {(eligibleRacesByType[selectedBetType] || []).length === 0 ? (
+                    <div className="text-base text-casino-slate-500">No races available for this bet type.</div>
+                ) : (
+                    <div className="flex flex-wrap gap-2">
+                        {(eligibleRacesByType[selectedBetType] || []).map((race) => {
+                            const isSelected = selectedRaceIds.includes(race.id);
+                            return (
+                                <button
+                                    key={race.id}
+                                    type="button"
+                                    onClick={() => toggleRaceSelection(race.id)}
+                                    className={clsx(
+                                        "px-4 py-2.5 rounded-xl border-2 text-sm font-black uppercase tracking-wide transition-all",
+                                        isSelected
+                                            ? "border-green-400 bg-green-500/20 text-green-300 shadow-[0_0_12px_rgba(34,197,94,0.2)]"
+                                            : "border-white/15 bg-black/20 text-casino-slate-300 hover:border-white/30 hover:bg-white/5"
+                                    )}
+                                >
+                                    {race.name}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {/* ══════════════ Race Cards (LIST FORMAT) ══════════════ */}
+            <div className="flex flex-col gap-5">
                 {activeRaces.length === 0 ? (
-                    <div className="text-center py-12 text-casino-slate-500 border border-dashed border-white/10 rounded-xl">
-                        No active races found for this sequence.
+                    <div className="text-center py-12 text-casino-slate-500 text-lg border-2 border-dashed border-white/10 rounded-2xl">
+                        No selected races yet.
                     </div>
                 ) : (
                     activeRaces.map((race, index) => {
                         const raceSelections = selections[race.id] || [];
                         const horses = horsesMap[race.id] || [];
+                        const ddBoard = ddBoardsMap[race.id];
+                        const ddPool = ddBoard?.pool_gross || 0;
+                        const horseDividends = ddDividendsMap[race.id] || {};
+                        const hasDDData = ddBoard !== null && ddBoard !== undefined;
 
                         return (
-                            <div key={race.id} className="glass-panel p-6 rounded-xl border border-white/5 bg-casino-dark-800/50">
-                                <div className="flex items-center justify-between mb-4 pb-4 border-b border-white/5">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center font-bold text-white border border-white/10">
-                                            R{index + 1}
+                            <div key={race.id} className="rounded-2xl border-2 border-white/10 bg-casino-dark-800/60 overflow-hidden">
+                                {/* ── Race Header with gradient accent ── */}
+                                <div className="bg-gradient-to-r from-violet-600/20 via-fuchsia-600/10 to-transparent border-b-2 border-white/10 px-4 sm:px-5 py-3 sm:py-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center font-black text-white text-base sm:text-lg shadow-lg">
+                                                R{index + 1}
+                                            </div>
+                                            <div>
+                                                <h3 className="font-black text-white text-base sm:text-lg uppercase tracking-wide">{race.name}</h3>
+                                                <span className="text-xs sm:text-sm text-casino-slate-400 font-mono">
+                                                    {new Date(race.racing_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <h3 className="font-bold text-white">{race.name}</h3>
-                                            <span className="text-xs text-casino-slate-500 font-mono">
-                                                {new Date(race.racing_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            </span>
+                                        <div className="text-right">
+                                            {hasDDData && ddPool > 0 && (
+                                                <div className="text-[10px] sm:text-xs text-cyan-300/80 font-bold uppercase tracking-wider mb-0.5">
+                                                    DD Pool: {formatPesoCompact(ddPool)}
+                                                </div>
+                                            )}
+                                            <div className="flex items-center gap-1.5">
+                                                <span className={clsx(
+                                                    "text-sm sm:text-base font-black",
+                                                    raceSelections.length > 0 ? "text-green-400" : "text-casino-slate-500"
+                                                )}>
+                                                    {raceSelections.length}
+                                                </span>
+                                                <span className="text-xs sm:text-sm text-casino-slate-500 uppercase font-bold">Selected</span>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div className="text-xs font-bold uppercase tracking-wider text-casino-gold-500">
-                                        {raceSelections.length} Selected
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                                {/* ── Horse List (column headers) ── */}
+                                <div className="px-3 sm:px-4 pt-2 pb-1">
+                                    <div className="grid grid-cols-[40px_1fr_70px_52px] sm:grid-cols-[48px_1fr_90px_64px] items-center gap-2 sm:gap-3 px-2 py-1 text-[10px] sm:text-xs text-casino-slate-500 uppercase font-bold tracking-wider">
+                                        <span className="text-center">#</span>
+                                        <span>Horse Name</span>
+                                        <span className="text-center">DD Div</span>
+                                        <span className="text-center">Pick</span>
+                                    </div>
+                                </div>
+
+                                {/* ── Horse Rows ── */}
+                                <div className="px-3 sm:px-4 pb-3 sm:pb-4 flex flex-col gap-1.5">
                                     {horses.map(horse => {
                                         const isSelected = raceSelections.includes(horse.horse_number);
                                         const isScratched = horse.status === 'scratched';
+                                        const ddDiv = horseDividends[horse.horse_number];
 
                                         return (
                                             <button
@@ -442,38 +738,61 @@ export const KareraProgramBetting = () => {
                                                 disabled={isScratched}
                                                 onClick={() => handleHorseToggle(race.id, horse.horse_number)}
                                                 className={clsx(
-                                                    "relative p-3 rounded-lg border transition-all flex flex-col items-center gap-2 group",
+                                                    "w-full grid grid-cols-[40px_1fr_70px_52px] sm:grid-cols-[48px_1fr_90px_64px] items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2.5 sm:py-3 rounded-xl border-2 transition-all text-left",
                                                     isScratched
-                                                        ? "opacity-30 border-red-900/30 bg-red-900/10 cursor-not-allowed"
+                                                        ? "opacity-40 border-red-800/40 bg-red-900/10 cursor-not-allowed"
                                                         : isSelected
-                                                            ? "border-casino-gold-500 bg-casino-gold-500/20 shadow-[inset_0_0_15px_rgba(234,179,8,0.2)]"
-                                                            : "border-white/5 bg-black/20 hover:bg-white/5 hover:border-white/20"
+                                                            ? "border-green-400 bg-green-500/15 shadow-[0_0_20px_rgba(34,197,94,0.15)]"
+                                                            : "border-white/8 bg-white/3 hover:bg-white/8 hover:border-violet-400/40 active:scale-[0.98]"
                                                 )}
                                             >
-                                                {/* Checkbox Indicator */}
+                                                {/* Horse Number Circle */}
                                                 <div className={clsx(
-                                                    "absolute top-2 right-2 w-4 h-4 rounded border flex items-center justify-center transition-colors",
-                                                    isSelected ? "bg-casino-gold-500 border-casino-gold-500" : "border-white/20"
-                                                )}>
-                                                    {isSelected && <div className="w-2 h-2 bg-black rounded-[1px]" />}
-                                                </div>
-
-                                                <div className={clsx(
-                                                    "w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg shadow-lg mb-1",
-                                                    isScratched ? "bg-red-900 text-white" : "bg-white text-black"
+                                                    "w-9 h-9 sm:w-11 sm:h-11 rounded-full flex items-center justify-center font-black text-base sm:text-lg shadow-md mx-auto",
+                                                    isScratched
+                                                        ? "bg-red-800 text-white/80"
+                                                        : isSelected
+                                                            ? "bg-green-500 text-white"
+                                                            : "bg-white text-black"
                                                 )}>
                                                     {horse.horse_number}
                                                 </div>
 
-                                                <div className="text-center w-full">
+                                                {/* Horse Name */}
+                                                <div className="min-w-0">
                                                     <div className={clsx(
-                                                        "text-xs font-bold truncate w-full",
-                                                        isSelected ? "text-casino-gold-400" : "text-white"
+                                                        "text-sm sm:text-base font-bold truncate",
+                                                        isScratched ? "line-through text-red-400" : isSelected ? "text-green-300" : "text-white"
                                                     )}>
-                                                        {horse.horse_name}{isScratched ? ' -S-' : ''}
+                                                        {horse.horse_name}
+                                                        {isScratched && <span className="ml-1.5 text-red-400 text-xs font-black">SCR</span>}
                                                     </div>
-                                                    <div className="text-[10px] text-casino-slate-500 font-mono mt-0.5">
-                                                        Div: {horse.current_dividend || '-'}
+                                                </div>
+
+                                                {/* DD Dividend */}
+                                                <div className="text-center">
+                                                    {isScratched ? (
+                                                        <Minus className="mx-auto text-red-500/50" size={16} />
+                                                    ) : hasDDData && ddDiv !== null && ddDiv !== undefined ? (
+                                                        <span className="text-sm sm:text-base font-black text-cyan-300 font-mono">
+                                                            {ddDiv.toLocaleString()}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-xs sm:text-sm text-casino-slate-600 font-mono">—</span>
+                                                    )}
+                                                </div>
+
+                                                {/* Selection Indicator */}
+                                                <div className="flex justify-center">
+                                                    <div className={clsx(
+                                                        "w-8 h-8 sm:w-10 sm:h-10 rounded-lg border-2 flex items-center justify-center transition-all",
+                                                        isScratched
+                                                            ? "border-red-800/30"
+                                                            : isSelected
+                                                                ? "border-green-400 bg-green-500 shadow-[0_0_14px_rgba(34,197,94,0.4)]"
+                                                                : "border-white/20 hover:border-violet-400/50"
+                                                    )}>
+                                                        {isSelected && <Check size={20} className="text-white" strokeWidth={3} />}
                                                     </div>
                                                 </div>
                                             </button>
@@ -486,53 +805,53 @@ export const KareraProgramBetting = () => {
                 )}
             </div>
 
-            {/* Sticky Bet Slip Footer */}
-            <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] lg:bottom-0 left-0 right-0 lg:left-64 z-40 p-3 md:p-4 border-t border-casino-gold-500/30 bg-casino-dark-900/95 backdrop-blur-xl shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+            {/* ══════════════ Sticky Bet Slip Footer ══════════════ */}
+            <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] lg:bottom-0 left-0 right-0 lg:left-64 z-40 p-3 md:p-4 border-t-2 border-green-400/30 bg-casino-dark-900/95 backdrop-blur-xl shadow-[0_-10px_40px_rgba(0,0,0,0.6)]">
                 <div className="max-w-7xl mx-auto flex flex-col gap-3 md:gap-4">
 
-                    {/* Row 1: Combinations + Total Cost (always visible) */}
+                    {/* Row 1: Combinations + Total Cost */}
                     <div className="flex items-center justify-between gap-3">
                         {/* Combinations */}
                         <div className="flex items-center gap-2 min-w-0">
-                            <div className="p-2 md:p-3 rounded-full bg-casino-gold-500/10 text-casino-gold-500 shrink-0">
-                                <Calculator size={18} className="md:hidden" />
-                                <Calculator size={24} className="hidden md:block" />
+                            <div className="p-2 md:p-3 rounded-full bg-violet-500/15 text-violet-400 shrink-0">
+                                <Calculator size={20} className="md:hidden" />
+                                <Calculator size={26} className="hidden md:block" />
                             </div>
                             <div className="min-w-0">
-                                <div className="text-[9px] md:text-[10px] text-casino-slate-400 uppercase font-bold tracking-wider">Combinations</div>
-                                <div className="text-sm md:text-xl font-mono font-bold text-white flex items-center flex-wrap gap-0.5 md:gap-2">
+                                <div className="text-[10px] md:text-xs text-casino-slate-400 uppercase font-black tracking-wider">Combinations</div>
+                                <div className="text-base md:text-xl font-mono font-black text-white flex items-center flex-wrap gap-0.5 md:gap-2">
                                     {activeRaces.map((r, i) => (
                                         <span key={r.id} className={clsx((selections[r.id]?.length || 0) === 0 ? "text-red-500" : "text-white")}>
                                             {selections[r.id]?.length || 0}
                                             {i < activeRaces.length - 1 && <span className="text-casino-slate-600 mx-0.5">×</span>}
                                         </span>
                                     ))}
-                                    <span className="text-casino-gold-500 mx-0.5">=</span>
-                                    <span className="text-casino-gold-500">{calculations.combinations}</span>
+                                    <span className="text-violet-400 mx-0.5">=</span>
+                                    <span className="text-violet-400">{calculations.combinations}</span>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Total Cost - always visible */}
+                        {/* Total Cost */}
                         <div className="flex items-center gap-2 shrink-0">
-                            <div className="p-2 md:p-3 rounded-full bg-green-500/10 text-green-500 shrink-0">
-                                <DollarSign size={18} className="md:hidden" />
-                                <DollarSign size={24} className="hidden md:block" />
+                            <div className="p-2 md:p-3 rounded-full bg-green-500/15 text-green-400 shrink-0">
+                                <DollarSign size={20} className="md:hidden" />
+                                <DollarSign size={26} className="hidden md:block" />
                             </div>
                             <div>
                                 {promoForReceipt ? (
                                     <>
-                                        <div className="text-[9px] md:text-[10px] text-red-200 uppercase font-black tracking-widest">Value (Promo)</div>
+                                        <div className="text-[10px] md:text-xs text-red-200 uppercase font-black tracking-widest">Value (Promo)</div>
                                         <div className="text-lg md:text-3xl font-mono font-black text-casino-gold-400 leading-none">
                                             {formatPesoUi(calculations.totalCost * (1 + (promoForReceipt.pct / 100)))}
                                         </div>
-                                        <div className="text-[9px] md:text-[10px] text-white/70 font-mono">
+                                        <div className="text-[10px] md:text-xs text-white/70 font-mono">
                                             Pay: <span className="text-white font-black">{formatPesoUi(calculations.totalCost)}</span>
                                         </div>
                                     </>
                                 ) : (
                                     <>
-                                        <div className="text-[9px] md:text-[10px] text-casino-slate-400 uppercase font-bold tracking-wider">Total Cost</div>
+                                        <div className="text-[10px] md:text-xs text-casino-slate-400 uppercase font-black tracking-wider">Total Cost</div>
                                         <div className="text-lg md:text-3xl font-mono font-black text-green-400 leading-none">
                                             {formatPesoUi(calculations.totalCost)}
                                         </div>
@@ -542,13 +861,19 @@ export const KareraProgramBetting = () => {
                         </div>
                     </div>
 
-                    {/* Row 2: Action Button */}
+                    {/* Row 2: ACTION BUTTON — Big, bright, neon green */}
                     <button
                         onClick={placeBet}
                         disabled={placingBet || !calculations.isComplete}
-                        className="w-full py-3 md:py-4 px-8 bg-gradient-to-r from-casino-gold-600 to-casino-gold-400 text-black font-black uppercase tracking-wider rounded-xl shadow-lg hover:brightness-110 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                        className={clsx(
+                            "w-full py-4 md:py-5 px-8 font-black uppercase tracking-wider text-lg sm:text-xl rounded-2xl shadow-lg transition-all",
+                            "active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed",
+                            !placingBet && calculations.isComplete
+                                ? "bg-gradient-to-r from-green-500 via-emerald-400 to-green-500 text-black border-2 border-green-300/50 shadow-[0_0_30px_rgba(34,197,94,0.3)] hover:shadow-[0_0_40px_rgba(34,197,94,0.5)] hover:brightness-110 animate-[pulse_3s_ease-in-out_infinite]"
+                                : "bg-casino-dark-700 text-white/50 border-2 border-white/10"
+                        )}
                     >
-                        {placingBet ? <RefreshCw className="animate-spin mx-auto" /> : 'Place System Bet'}
+                        {placingBet ? <RefreshCw className="animate-spin mx-auto" size={28} /> : '🏇 PLACE SYSTEM BET'}
                     </button>
                 </div>
             </div>

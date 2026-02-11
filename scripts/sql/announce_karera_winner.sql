@@ -126,6 +126,8 @@ declare
   v_won_multi int := 0;
   v_lost_multi int := 0;
   v_payout_total_multi numeric := 0;
+  
+  v_lost_early int := 0;
 
   v_settled int := 0;
   v_won int := 0;
@@ -592,6 +594,64 @@ begin
   into v_settled_single, v_won_single, v_lost_single, v_payout_total_single
   from updated_bets;
 
+  -- Early Loss Logic:
+  -- Mark multi-race bets as LOST if they are pending, include this race, and failed this leg.
+  -- This is done before final settlement so we don't need to check if other legs are pending.
+  with early_loss_candidates as (
+    select
+      b.id,
+      b.combinations
+    from public.karera_bets b
+    where (b.status is null or b.status = 'pending')
+      and b.bet_type in ('daily_double', 'daily_double_plus_one', 'pick_4', 'pick_5', 'pick_6', 'wta', 'winner_take_all')
+      and jsonb_typeof(b.combinations->'legs') = 'array'
+      -- Check if this bet involves the current race
+      and exists (
+        select 1 from jsonb_array_elements(b.combinations->'legs') leg
+        where leg->>'race_id' = p_race_id::text
+      )
+  ),
+  early_loss_exploded as (
+    select
+      elc.id,
+      (
+          select leg 
+          from jsonb_array_elements(elc.combinations->'legs') leg 
+          where leg->>'race_id' = p_race_id::text 
+          limit 1
+      ) as current_leg
+    from early_loss_candidates elc
+  ),
+  early_loss_confirmed as (
+    select
+      ele.id
+    from early_loss_exploded ele
+    where
+      -- Check if user's selections for this leg contain the winner
+      -- If bet type is WIN-based (all current program bets are Win-based)
+      not (
+           p_first::text = any(
+             array(
+               select jsonb_array_elements_text(
+                 case 
+                   when jsonb_typeof(ele.current_leg->'horses') = 'array' then ele.current_leg->'horses'
+                   else '[]'::jsonb 
+                 end
+               )
+             )
+           )
+      )
+  ),
+  updated_early_loss as (
+      update public.karera_bets b
+      set status = 'lost', payout = 0
+      from early_loss_confirmed elc
+      where b.id = elc.id
+      returning b.id
+  )
+  select count(*)::int into v_lost_early
+  from updated_early_loss;
+
   -- Settle parley/program bets that become fully-resolved by finishing this race.
   with pending_multi as (
     select
@@ -753,9 +813,9 @@ begin
   into v_settled_multi, v_won_multi, v_lost_multi, v_payout_total_multi
   from updated_bets_multi;
 
-  v_settled := v_settled_single + v_settled_multi;
+  v_settled := v_settled_single + v_settled_multi + v_lost_early;
   v_won := v_won_single + v_won_multi;
-  v_lost := v_lost_single + v_lost_multi;
+  v_lost := v_lost_single + v_lost_multi + v_lost_early;
   v_payout_total := coalesce(v_payout_total_single, 0) + coalesce(v_payout_total_multi, 0);
 
   -- End the race + persist result (for user-facing "previous race" display)
