@@ -294,11 +294,11 @@ export const KareraProgramBetting = () => {
         if (betType === 'pick_4') return 4;
         if (betType === 'pick_5') return 5;
         if (betType === 'pick_6') return 6;
+        if (betType === 'wta') return 7;
         return null;
     };
 
     const minLegCount = (betType: ProgramBetType) => {
-        if (betType === 'wta') return 2;
         return requiredLegCount(betType) || 1;
     };
 

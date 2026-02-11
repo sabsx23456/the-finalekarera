@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Plus, Trophy, Calendar, Trash2, Edit2, Upload, Swords, RotateCcw, Tv, Sparkles, Megaphone, Clock, Lock, Unlock } from 'lucide-react';
 import { useToast } from '../../components/ui/Toast';
@@ -87,6 +87,51 @@ export const EventManagementPage = () => {
         'daily_double', 'daily_double_plus_one',
         'pick_4', 'pick_5', 'pick_6', 'wta'
     ];
+
+    type ProgramBetType = 'pick_4' | 'pick_5' | 'pick_6' | 'wta';
+    const PROGRAM_BET_LEGS: Record<ProgramBetType, number> = {
+        pick_4: 4,
+        pick_5: 5,
+        pick_6: 6,
+        wta: 7,
+    };
+
+    const programBetLabel = (bt: ProgramBetType) =>
+        bt === 'wta' ? 'WTA' : bt.replace('_', ' ').toUpperCase();
+
+    const availableOpenLegsFromDraftRace = useMemo(() => {
+        const normalizeTid = (v: unknown) => String(v || '').trim();
+        const modalTid = normalizeTid(kareraFormData.tournament_id || selectedKareraTournamentId);
+        const draftTimeMs = Date.parse(String(kareraFormData.racing_time || ''));
+        const isDraftOpen = kareraFormData.status === 'open' && Number.isFinite(draftTimeMs);
+        if (!isDraftOpen) return 0;
+
+        const draftId = editingKarera?.id || '__draft_race__';
+        const scopedOpen = kareraRaces
+            .filter((r) => r.status === 'open')
+            .filter((r) => normalizeTid((r as any).tournament_id) === modalTid)
+            .filter((r) => r.id !== draftId)
+            .map((r) => ({ ...r }));
+
+        scopedOpen.push({
+            ...(editingKarera || {} as KareraRace),
+            id: draftId,
+            racing_time: new Date(draftTimeMs).toISOString(),
+            status: 'open',
+            tournament_id: modalTid || null,
+        } as KareraRace);
+
+        scopedOpen.sort((a, b) => {
+            const at = Date.parse(String(a.racing_time || ''));
+            const bt = Date.parse(String(b.racing_time || ''));
+            if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) return at - bt;
+            return String(a.created_at || '').localeCompare(String(b.created_at || ''));
+        });
+
+        const anchorIdx = scopedOpen.findIndex((r) => r.id === draftId);
+        if (anchorIdx < 0) return 0;
+        return scopedOpen.length - anchorIdx;
+    }, [kareraFormData.racing_time, kareraFormData.status, kareraFormData.tournament_id, selectedKareraTournamentId, kareraRaces, editingKarera]);
 
     // Debounce realtime-driven refetches (prevents request storms when many rows change quickly).
     const sabongRefreshTimerRef = useRef<number | null>(null);
@@ -1180,6 +1225,21 @@ export const EventManagementPage = () => {
     const handleKareraSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
+            const invalidProgramTypes = (kareraFormData.bet_types_available || [])
+                .filter((t) => ['pick_4', 'pick_5', 'pick_6', 'wta'].includes(String(t)))
+                .filter((t) => {
+                    const required = PROGRAM_BET_LEGS[t as ProgramBetType];
+                    return availableOpenLegsFromDraftRace < required;
+                }) as ProgramBetType[];
+
+            if (invalidProgramTypes.length > 0) {
+                const first = invalidProgramTypes[0];
+                const required = PROGRAM_BET_LEGS[first];
+                throw new Error(
+                    `${programBetLabel(first)} requires ${required} consecutive open races from this race onward.`,
+                );
+            }
+
             const trimmedTournamentId = String(kareraFormData.tournament_id || selectedKareraTournamentId || '').trim();
             let includeTournamentId = Boolean(trimmedTournamentId);
             let warnedMissingTournamentColumn = false;
@@ -2674,11 +2734,31 @@ export const EventManagementPage = () => {
                                 <label className="text-xs font-bold text-casino-slate-400 uppercase mb-2 block">Bet Types</label>
                                 <div className="grid grid-cols-2 gap-2">
                                     {availableBetTypes.map(type => (
-                                        <label key={type} className="flex items-center gap-2 bg-white/5 p-2 rounded cursor-pointer hover:bg-white/10">
+                                        <label
+                                            key={type}
+                                            className={clsx(
+                                                "flex items-center gap-2 p-2 rounded transition-colors",
+                                                (() => {
+                                                    const checked = kareraFormData.bet_types_available.includes(type);
+                                                    const required = PROGRAM_BET_LEGS[type as ProgramBetType];
+                                                    const blocked = Boolean(required) && !checked && availableOpenLegsFromDraftRace < required;
+                                                    if (blocked) return "bg-white/5 opacity-60 cursor-not-allowed";
+                                                    return "bg-white/5 cursor-pointer hover:bg-white/10";
+                                                })()
+                                            )}
+                                        >
                                             <input
                                                 type="checkbox"
                                                 checked={kareraFormData.bet_types_available.includes(type)}
                                                 onChange={(e) => {
+                                                    const required = PROGRAM_BET_LEGS[type as ProgramBetType];
+                                                    if (e.target.checked && required && availableOpenLegsFromDraftRace < required) {
+                                                        showToast(
+                                                            `${programBetLabel(type as ProgramBetType)} needs ${required} consecutive open races from this race onward.`,
+                                                            'error'
+                                                        );
+                                                        return;
+                                                    }
                                                     const newTypes = e.target.checked
                                                         ? [...kareraFormData.bet_types_available, type]
                                                         : kareraFormData.bet_types_available.filter(t => t !== type);
