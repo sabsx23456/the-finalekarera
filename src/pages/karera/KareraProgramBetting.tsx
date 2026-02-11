@@ -19,18 +19,37 @@ const BET_CONFIG: Record<string, { label: string; raceCount: number }> = {
     'wta': { label: 'Winner Take All', raceCount: 7 },
 };
 
+const BET_TYPE_THEME: Record<ProgramBetType, { active: string; pill: string }> = {
+    pick_4: {
+        active: 'border-yellow-200 bg-gradient-to-r from-amber-300 via-yellow-300 to-orange-300 text-black shadow-[0_0_20px_rgba(251,191,36,0.45)]',
+        pill: 'bg-amber-200 text-amber-900 border-amber-300',
+    },
+    pick_5: {
+        active: 'border-sky-200 bg-gradient-to-r from-cyan-300 via-sky-300 to-blue-300 text-black shadow-[0_0_20px_rgba(56,189,248,0.45)]',
+        pill: 'bg-sky-200 text-sky-900 border-sky-300',
+    },
+    pick_6: {
+        active: 'border-lime-200 bg-gradient-to-r from-lime-300 via-emerald-300 to-green-300 text-black shadow-[0_0_20px_rgba(74,222,128,0.45)]',
+        pill: 'bg-lime-200 text-lime-900 border-lime-300',
+    },
+    wta: {
+        active: 'border-pink-200 bg-gradient-to-r from-fuchsia-300 via-pink-300 to-rose-300 text-black shadow-[0_0_20px_rgba(244,114,182,0.45)]',
+        pill: 'bg-pink-200 text-pink-900 border-pink-300',
+    },
+};
+
 const UNIT_COST = 2; // P2.00 per ticket
 
 const formatPesoUi = (value: number) => {
     const safe = Number.isFinite(value) ? value : 0;
-    return `₱${safe.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `PHP ${safe.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
 const formatPesoCompact = (value: number) => {
     const safe = Number.isFinite(value) ? value : 0;
-    if (safe >= 1_000_000) return `₱${(safe / 1_000_000).toFixed(1)}M`;
-    if (safe >= 1_000) return `₱${(safe / 1_000).toFixed(0)}K`;
-    return `₱${safe.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    if (safe >= 1_000_000) return `PHP ${(safe / 1_000_000).toFixed(1)}M`;
+    if (safe >= 1_000) return `PHP ${(safe / 1_000).toFixed(0)}K`;
+    return `PHP ${safe.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 };
 
 // Parse live board data from the karera_live_boards table
@@ -561,7 +580,7 @@ export const KareraProgramBetting = () => {
 
     // ---------- MAIN RENDER ----------
     return (
-        <div className="max-w-7xl mx-auto p-4 flex flex-col gap-5 min-h-screen pb-36">
+        <div className="max-w-7xl mx-auto p-4 flex flex-col gap-5 min-h-screen pb-36 text-[16px] sm:text-[17px] leading-relaxed">
 
             {/* ── Header ── */}
             <div className="flex flex-col gap-4">
@@ -570,15 +589,15 @@ export const KareraProgramBetting = () => {
                         <ArrowLeft size={26} />
                     </Link>
                     <div>
-                        <h1 className="text-2xl sm:text-3xl font-black text-white uppercase italic tracking-wider">
+                        <h1 className="text-3xl sm:text-4xl font-black text-white uppercase italic tracking-wide">
                             Program Betting
                         </h1>
-                        <p className="text-casino-slate-400 text-sm sm:text-base">System tickets for multiple races</p>
+                        <p className="text-casino-slate-300 text-base sm:text-lg">System tickets for multiple races</p>
                     </div>
                 </div>
 
                 {/* ── Bet Type Tabs ── */}
-                <div className="flex bg-casino-dark-800 rounded-2xl p-1.5 gap-1.5 overflow-x-auto border border-white/10 scrollbar-thin">
+                <div className="flex bg-casino-dark-800/80 rounded-2xl p-2 gap-2 overflow-x-auto border-2 border-white/15 scrollbar-thin">
                     {Object.entries(BET_CONFIG).map(([key, config]) => {
                         const k = key as ProgramBetType;
                         const disabled = Boolean(betTypeDisabled[k]);
@@ -595,12 +614,12 @@ export const KareraProgramBetting = () => {
                                 }}
                                 title={disabled ? `Not enough open races for ${config.label}.` : undefined}
                                 className={clsx(
-                                    "px-5 py-3 rounded-xl text-sm sm:text-base font-black uppercase whitespace-nowrap transition-all tracking-wide",
+                                    "px-6 py-3.5 rounded-xl text-base sm:text-lg font-black uppercase whitespace-nowrap transition-all tracking-wide border-2",
                                     disabled
-                                        ? "opacity-30 cursor-not-allowed text-white/60"
+                                        ? "opacity-35 cursor-not-allowed text-white/60 border-white/10 bg-white/5"
                                         : selectedBetType === key
-                                            ? "bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-lg shadow-violet-500/30"
-                                            : "text-casino-slate-300 hover:bg-white/10 hover:text-white"
+                                            ? BET_TYPE_THEME[k].active
+                                            : "text-casino-slate-100 border-white/20 bg-white/5 hover:bg-white/15 hover:text-white"
                                 )}
                             >
                                 {config.label}
@@ -611,30 +630,30 @@ export const KareraProgramBetting = () => {
             </div>
 
             {/* ── Info Banner ── */}
-            <div className="bg-blue-900/30 border-2 border-blue-400/30 p-4 rounded-2xl flex items-start gap-3">
-                <Info className="text-blue-400 shrink-0 mt-0.5" size={22} />
-                <div className="text-sm sm:text-base text-blue-200">
-                    <span className="font-black text-blue-100">System Betting:</span> Select multiple horses per race.
+            <div className="bg-blue-900/35 border-2 border-blue-300/40 p-5 rounded-2xl flex items-start gap-3">
+                <Info className="text-blue-300 shrink-0 mt-0.5" size={24} />
+                <div className="text-base sm:text-lg text-blue-100">
+                    <span className="font-black text-white">System Betting:</span> Select multiple horses per race.
                     Cost = selections multiplied across races.
                     <br />
-                    <span className="opacity-70 text-xs sm:text-sm">Ticket Cost: {formatPesoUi(UNIT_COST)} / combination</span>
+                    <span className="opacity-90 text-sm sm:text-base">Ticket Cost: {formatPesoUi(UNIT_COST)} / combination</span>
                 </div>
             </div>
 
             {/* ── Race Selector Panel ── */}
-            <div className="p-4 rounded-2xl border-2 border-white/10 bg-casino-dark-800/60">
+            <div className="p-4 rounded-2xl border-2 border-white/15 bg-casino-dark-800/75">
                 <div className="flex items-center justify-between gap-3 mb-3">
                     <div>
-                        <h3 className="text-sm sm:text-base font-black uppercase tracking-wide text-white">
+                        <h3 className="text-base sm:text-lg font-black uppercase tracking-wide text-white">
                             Choose Races for {BET_CONFIG[selectedBetType].label}
                         </h3>
-                        <p className="text-xs sm:text-sm text-casino-slate-400">
+                        <p className="text-sm sm:text-base text-casino-slate-300">
                             {requiredLegCount(selectedBetType)
                                 ? `Select exactly ${requiredLegCount(selectedBetType)} races`
                                 : `Select at least ${minLegCount(selectedBetType)} races`}
                         </p>
                     </div>
-                    <div className="text-sm font-black uppercase tracking-wider text-casino-gold-500">
+                    <div className={clsx("text-sm sm:text-base font-black uppercase tracking-wider border px-3 py-1.5 rounded-lg", BET_TYPE_THEME[selectedBetType].pill)}>
                         {selectedRaceIds.length} Selected
                     </div>
                 </div>
@@ -651,10 +670,10 @@ export const KareraProgramBetting = () => {
                                     type="button"
                                     onClick={() => toggleRaceSelection(race.id)}
                                     className={clsx(
-                                        "px-4 py-2.5 rounded-xl border-2 text-sm font-black uppercase tracking-wide transition-all",
+                                        "px-5 py-3 rounded-xl border-2 text-base sm:text-lg font-black uppercase tracking-wide transition-all",
                                         isSelected
-                                            ? "border-green-400 bg-green-500/20 text-green-300 shadow-[0_0_12px_rgba(34,197,94,0.2)]"
-                                            : "border-white/15 bg-black/20 text-casino-slate-300 hover:border-white/30 hover:bg-white/5"
+                                            ? "border-yellow-200 bg-yellow-300 text-black shadow-[0_0_14px_rgba(253,224,71,0.45)]"
+                                            : "border-white/20 bg-black/20 text-casino-slate-100 hover:border-white/40 hover:bg-white/10"
                                     )}
                                 >
                                     {race.name}
@@ -681,17 +700,17 @@ export const KareraProgramBetting = () => {
                         const hasDDData = ddBoard !== null && ddBoard !== undefined;
 
                         return (
-                            <div key={race.id} className="rounded-2xl border-2 border-white/10 bg-casino-dark-800/60 overflow-hidden">
+                            <div key={race.id} className="rounded-2xl border-2 border-white/15 bg-casino-dark-800/70 overflow-hidden">
                                 {/* ── Race Header with gradient accent ── */}
-                                <div className="bg-gradient-to-r from-violet-600/20 via-fuchsia-600/10 to-transparent border-b-2 border-white/10 px-4 sm:px-5 py-3 sm:py-4">
+                                <div className="bg-gradient-to-r from-cyan-500/25 via-sky-400/20 to-transparent border-b-2 border-white/15 px-4 sm:px-5 py-3 sm:py-4">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-3">
                                             <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center font-black text-white text-base sm:text-lg shadow-lg">
                                                 R{index + 1}
                                             </div>
                                             <div>
-                                                <h3 className="font-black text-white text-base sm:text-lg uppercase tracking-wide">{race.name}</h3>
-                                                <span className="text-xs sm:text-sm text-casino-slate-400 font-mono">
+                                                <h3 className="font-black text-white text-lg sm:text-xl uppercase tracking-wide">{race.name}</h3>
+                                                <span className="text-sm sm:text-base text-casino-slate-200 font-mono">
                                                     {new Date(race.racing_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                 </span>
                                             </div>
@@ -704,12 +723,12 @@ export const KareraProgramBetting = () => {
                                             )}
                                             <div className="flex items-center gap-1.5">
                                                 <span className={clsx(
-                                                    "text-sm sm:text-base font-black",
-                                                    raceSelections.length > 0 ? "text-green-400" : "text-casino-slate-500"
+                                                    "text-base sm:text-lg font-black",
+                                                    raceSelections.length > 0 ? "text-green-300" : "text-casino-slate-300"
                                                 )}>
                                                     {raceSelections.length}
                                                 </span>
-                                                <span className="text-xs sm:text-sm text-casino-slate-500 uppercase font-bold">Selected</span>
+                                                <span className="text-sm sm:text-base text-casino-slate-200 uppercase font-bold">Selected</span>
                                             </div>
                                         </div>
                                     </div>
@@ -717,7 +736,7 @@ export const KareraProgramBetting = () => {
 
                                 {/* ── Horse List (column headers) ── */}
                                 <div className="px-3 sm:px-4 pt-2 pb-1">
-                                    <div className="grid grid-cols-[40px_1fr_70px_52px] sm:grid-cols-[48px_1fr_90px_64px] items-center gap-2 sm:gap-3 px-2 py-1 text-[10px] sm:text-xs text-casino-slate-500 uppercase font-bold tracking-wider">
+                                    <div className="grid grid-cols-[48px_1fr_90px_64px] sm:grid-cols-[56px_1fr_110px_72px] items-center gap-2 sm:gap-3 px-2 py-2 text-xs sm:text-sm text-casino-slate-200 uppercase font-bold tracking-wide">
                                         <span className="text-center">#</span>
                                         <span>Horse Name</span>
                                         <span className="text-center">DD Div</span>
@@ -738,21 +757,21 @@ export const KareraProgramBetting = () => {
                                                 disabled={isScratched}
                                                 onClick={() => handleHorseToggle(race.id, horse.horse_number)}
                                                 className={clsx(
-                                                    "w-full grid grid-cols-[40px_1fr_70px_52px] sm:grid-cols-[48px_1fr_90px_64px] items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2.5 sm:py-3 rounded-xl border-2 transition-all text-left",
+                                                    "w-full grid grid-cols-[48px_1fr_90px_64px] sm:grid-cols-[56px_1fr_110px_72px] items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 sm:py-3.5 rounded-xl border-2 transition-all text-left",
                                                     isScratched
-                                                        ? "opacity-40 border-red-800/40 bg-red-900/10 cursor-not-allowed"
+                                                        ? "opacity-45 border-red-700/40 bg-red-900/20 cursor-not-allowed"
                                                         : isSelected
-                                                            ? "border-green-400 bg-green-500/15 shadow-[0_0_20px_rgba(34,197,94,0.15)]"
-                                                            : "border-white/8 bg-white/3 hover:bg-white/8 hover:border-violet-400/40 active:scale-[0.98]"
+                                                            ? "border-sky-200 bg-sky-300/20 shadow-[0_0_20px_rgba(56,189,248,0.25)]"
+                                                            : "border-white/15 bg-white/5 hover:bg-white/12 hover:border-white/35 active:scale-[0.98]"
                                                 )}
                                             >
                                                 {/* Horse Number Circle */}
                                                 <div className={clsx(
-                                                    "w-9 h-9 sm:w-11 sm:h-11 rounded-full flex items-center justify-center font-black text-base sm:text-lg shadow-md mx-auto",
+                                                    "w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center font-black text-lg sm:text-xl shadow-md mx-auto",
                                                     isScratched
                                                         ? "bg-red-800 text-white/80"
                                                         : isSelected
-                                                            ? "bg-green-500 text-white"
+                                                            ? "bg-sky-400 text-black"
                                                             : "bg-white text-black"
                                                 )}>
                                                     {horse.horse_number}
@@ -761,8 +780,8 @@ export const KareraProgramBetting = () => {
                                                 {/* Horse Name */}
                                                 <div className="min-w-0">
                                                     <div className={clsx(
-                                                        "text-sm sm:text-base font-bold truncate",
-                                                        isScratched ? "line-through text-red-400" : isSelected ? "text-green-300" : "text-white"
+                                                        "text-base sm:text-lg font-bold truncate",
+                                                        isScratched ? "line-through text-red-300" : isSelected ? "text-sky-200" : "text-white"
                                                     )}>
                                                         {horse.horse_name}
                                                         {isScratched && <span className="ml-1.5 text-red-400 text-xs font-black">SCR</span>}
@@ -774,25 +793,25 @@ export const KareraProgramBetting = () => {
                                                     {isScratched ? (
                                                         <Minus className="mx-auto text-red-500/50" size={16} />
                                                     ) : hasDDData && ddDiv !== null && ddDiv !== undefined ? (
-                                                        <span className="text-sm sm:text-base font-black text-cyan-300 font-mono">
+                                                        <span className="text-base sm:text-lg font-black text-cyan-200 font-mono">
                                                             {ddDiv.toLocaleString()}
                                                         </span>
                                                     ) : (
-                                                        <span className="text-xs sm:text-sm text-casino-slate-600 font-mono">—</span>
+                                                        <span className="text-sm sm:text-base text-casino-slate-400 font-mono">--</span>
                                                     )}
                                                 </div>
 
                                                 {/* Selection Indicator */}
                                                 <div className="flex justify-center">
                                                     <div className={clsx(
-                                                        "w-8 h-8 sm:w-10 sm:h-10 rounded-lg border-2 flex items-center justify-center transition-all",
+                                                        "w-9 h-9 sm:w-11 sm:h-11 rounded-lg border-2 flex items-center justify-center transition-all",
                                                         isScratched
                                                             ? "border-red-800/30"
                                                             : isSelected
-                                                                ? "border-green-400 bg-green-500 shadow-[0_0_14px_rgba(34,197,94,0.4)]"
-                                                                : "border-white/20 hover:border-violet-400/50"
+                                                                ? "border-sky-200 bg-sky-400 shadow-[0_0_14px_rgba(56,189,248,0.4)]"
+                                                                : "border-white/35 hover:border-sky-200"
                                                     )}>
-                                                        {isSelected && <Check size={20} className="text-white" strokeWidth={3} />}
+                                                        {isSelected && <Check size={22} className="text-black" strokeWidth={3} />}
                                                     </div>
                                                 </div>
                                             </button>
@@ -823,7 +842,7 @@ export const KareraProgramBetting = () => {
                                     {activeRaces.map((r, i) => (
                                         <span key={r.id} className={clsx((selections[r.id]?.length || 0) === 0 ? "text-red-500" : "text-white")}>
                                             {selections[r.id]?.length || 0}
-                                            {i < activeRaces.length - 1 && <span className="text-casino-slate-600 mx-0.5">×</span>}
+                                            {i < activeRaces.length - 1 && <span className="text-casino-slate-600 mx-0.5">x</span>}
                                         </span>
                                     ))}
                                     <span className="text-violet-400 mx-0.5">=</span>
@@ -861,7 +880,7 @@ export const KareraProgramBetting = () => {
                         </div>
                     </div>
 
-                    {/* Row 2: ACTION BUTTON — Big, bright, neon green */}
+                    {/* Row 2: ACTION BUTTON - Big, bright, neon green */}
                     <button
                         onClick={placeBet}
                         disabled={placingBet || !calculations.isComplete}
@@ -873,7 +892,7 @@ export const KareraProgramBetting = () => {
                                 : "bg-casino-dark-700 text-white/50 border-2 border-white/10"
                         )}
                     >
-                        {placingBet ? <RefreshCw className="animate-spin mx-auto" size={28} /> : '🏇 PLACE SYSTEM BET'}
+                        {placingBet ? <RefreshCw className="animate-spin mx-auto" size={28} /> : 'PLACE SYSTEM BET'}
                     </button>
                 </div>
             </div>
