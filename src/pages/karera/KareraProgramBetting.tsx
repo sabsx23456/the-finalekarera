@@ -164,32 +164,37 @@ export const KareraProgramBetting = () => {
     // In a real app, we might need logic to select WHICH sequence (e.g., Races 1-7 or Races 2-8).
     // For this MVP, we take the first N races from the list.
     const betTypeDisabled = useMemo(() => {
-        const available = races.length;
         const out = {} as Record<keyof typeof BET_CONFIG, boolean>;
         (Object.keys(BET_CONFIG) as Array<keyof typeof BET_CONFIG>).forEach((k) => {
-            out[k] = available < BET_CONFIG[k].raceCount;
+            const eligible = races.filter(r => r.bet_types_available?.includes(k as any));
+            out[k] = eligible.length < BET_CONFIG[k].raceCount;
         });
         return out;
-    }, [races.length]);
+    }, [races]);
 
     useEffect(() => {
         const current = BET_CONFIG[selectedBetType];
         if (!current) return;
-        if (races.length >= current.raceCount) return;
+        const eligible = races.filter(r => r.bet_types_available?.includes(selectedBetType as any));
+        if (eligible.length >= current.raceCount) return;
 
         const best = (Object.entries(BET_CONFIG) as Array<[keyof typeof BET_CONFIG, { label: string; raceCount: number }]>)
-            .filter(([, cfg]) => races.length >= cfg.raceCount)
+            .filter(([k, cfg]) => {
+                const elig = races.filter(r => r.bet_types_available?.includes(k as any));
+                return elig.length >= cfg.raceCount;
+            })
             .sort((a, b) => b[1].raceCount - a[1].raceCount)[0];
 
         if (best && best[0] !== selectedBetType) {
             setSelectedBetType(best[0]);
             setSelections({});
         }
-    }, [races.length, selectedBetType]);
+    }, [races, selectedBetType]);
 
     const activeRaces = useMemo(() => {
         const count = BET_CONFIG[selectedBetType].raceCount;
-        return races.slice(0, count);
+        const eligible = races.filter(r => r.bet_types_available?.includes(selectedBetType as any));
+        return eligible.slice(0, count);
     }, [races, selectedBetType]);
 
     const handleHorseToggle = (raceId: string, horseNum: number) => {
@@ -482,56 +487,53 @@ export const KareraProgramBetting = () => {
             </div>
 
             {/* Sticky Bet Slip Footer */}
-            <div className="fixed bottom-0 left-0 right-0 lg:left-64 z-40 p-4 border-t border-casino-gold-500/30 bg-casino-dark-900/95 backdrop-blur-xl shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
-                <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] lg:bottom-0 left-0 right-0 lg:left-64 z-40 p-3 md:p-4 border-t border-casino-gold-500/30 bg-casino-dark-900/95 backdrop-blur-xl shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+                <div className="max-w-7xl mx-auto flex flex-col gap-3 md:gap-4">
 
-                    {/* Calculation Display */}
-                    <div className="flex items-center gap-6">
-                        <div className="flex items-center gap-3">
-                            <div className="p-3 rounded-full bg-casino-gold-500/10 text-casino-gold-500">
-                                <Calculator size={24} />
+                    {/* Row 1: Combinations + Total Cost (always visible) */}
+                    <div className="flex items-center justify-between gap-3">
+                        {/* Combinations */}
+                        <div className="flex items-center gap-2 min-w-0">
+                            <div className="p-2 md:p-3 rounded-full bg-casino-gold-500/10 text-casino-gold-500 shrink-0">
+                                <Calculator size={18} className="md:hidden" />
+                                <Calculator size={24} className="hidden md:block" />
                             </div>
-                            <div>
-                                <div className="text-[10px] text-casino-slate-400 uppercase font-bold tracking-wider">Combinations</div>
-                                <div className="text-xl font-mono font-bold text-white flex items-center gap-2">
+                            <div className="min-w-0">
+                                <div className="text-[9px] md:text-[10px] text-casino-slate-400 uppercase font-bold tracking-wider">Combinations</div>
+                                <div className="text-sm md:text-xl font-mono font-bold text-white flex items-center flex-wrap gap-0.5 md:gap-2">
                                     {activeRaces.map((r, i) => (
                                         <span key={r.id} className={clsx((selections[r.id]?.length || 0) === 0 ? "text-red-500" : "text-white")}>
                                             {selections[r.id]?.length || 0}
-                                            {i < activeRaces.length - 1 && <span className="text-casino-slate-600 mx-1">×</span>}
+                                            {i < activeRaces.length - 1 && <span className="text-casino-slate-600 mx-0.5">×</span>}
                                         </span>
                                     ))}
-                                    <span className="text-casino-gold-500 mx-1">=</span>
+                                    <span className="text-casino-gold-500 mx-0.5">=</span>
                                     <span className="text-casino-gold-500">{calculations.combinations}</span>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="h-10 w-px bg-white/10 hidden md:block" />
-
-                        <div className="flex items-center gap-3">
-                            <div className="p-3 rounded-full bg-green-500/10 text-green-500">
-                                <DollarSign size={24} />
+                        {/* Total Cost - always visible */}
+                        <div className="flex items-center gap-2 shrink-0">
+                            <div className="p-2 md:p-3 rounded-full bg-green-500/10 text-green-500 shrink-0">
+                                <DollarSign size={18} className="md:hidden" />
+                                <DollarSign size={24} className="hidden md:block" />
                             </div>
                             <div>
                                 {promoForReceipt ? (
                                     <>
-                                        <div className="text-[10px] text-red-200 uppercase font-black tracking-widest">Ticket Value (Promo)</div>
-                                        <div className="text-3xl font-mono font-black text-casino-gold-400 leading-none">
+                                        <div className="text-[9px] md:text-[10px] text-red-200 uppercase font-black tracking-widest">Value (Promo)</div>
+                                        <div className="text-lg md:text-3xl font-mono font-black text-casino-gold-400 leading-none">
                                             {formatPesoUi(calculations.totalCost * (1 + (promoForReceipt.pct / 100)))}
                                         </div>
-                                        <div className="mt-2 text-[10px] text-white/70 font-mono">
-                                            You pay: <span className="text-white font-black">{formatPesoUi(calculations.totalCost)}</span>
+                                        <div className="text-[9px] md:text-[10px] text-white/70 font-mono">
+                                            Pay: <span className="text-white font-black">{formatPesoUi(calculations.totalCost)}</span>
                                         </div>
-                                        {promoForReceipt.text ? (
-                                            <div className="mt-2 text-[10px] text-red-200 font-black uppercase tracking-widest">
-                                                {promoForReceipt.text}
-                                            </div>
-                                        ) : null}
                                     </>
                                 ) : (
                                     <>
-                                        <div className="text-[10px] text-casino-slate-400 uppercase font-bold tracking-wider">Total</div>
-                                        <div className="text-3xl font-mono font-black text-green-400 leading-none">
+                                        <div className="text-[9px] md:text-[10px] text-casino-slate-400 uppercase font-bold tracking-wider">Total Cost</div>
+                                        <div className="text-lg md:text-3xl font-mono font-black text-green-400 leading-none">
                                             {formatPesoUi(calculations.totalCost)}
                                         </div>
                                     </>
@@ -540,11 +542,11 @@ export const KareraProgramBetting = () => {
                         </div>
                     </div>
 
-                    {/* Action Button */}
+                    {/* Row 2: Action Button */}
                     <button
                         onClick={placeBet}
                         disabled={placingBet || !calculations.isComplete}
-                        className="py-4 px-8 bg-gradient-to-r from-casino-gold-600 to-casino-gold-400 text-black font-black uppercase tracking-wider rounded-xl shadow-lg hover:brightness-110 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all min-w-[200px]"
+                        className="w-full py-3 md:py-4 px-8 bg-gradient-to-r from-casino-gold-600 to-casino-gold-400 text-black font-black uppercase tracking-wider rounded-xl shadow-lg hover:brightness-110 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                     >
                         {placingBet ? <RefreshCw className="animate-spin mx-auto" /> : 'Place System Bet'}
                     </button>
